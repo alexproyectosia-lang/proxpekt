@@ -1,4 +1,53 @@
-export default function Home() {
+import { supabase } from '@/lib/supabase'
+
+async function getCompanies() {
+  const { data, error } = await supabase
+    .from('companies')
+    .select(`
+      *,
+      signals (
+        signal_type,
+        signal_data,
+        score_points,
+        is_active
+      )
+    `)
+    .eq('signals.is_active', true)
+    .order('company_score', { ascending: false })
+    .limit(20)
+
+  if (error) console.error(error)
+  return data || []
+}
+
+function getSignalLabel(signalType: string, signalData: Record<string, unknown>) {
+  switch (signalType) {
+    case 'director_nuevo':
+      return `🔴 Director nuevo hace ${signalData.dias} días`
+    case 'contrato_compranet':
+      return `🔴 Contrato Compranet $${(Number(signalData.monto) / 1000000).toFixed(1)}M`
+    case 'vacante_gerencial':
+      return `🟡 Vacante ${signalData.puesto}`
+    case 'impi_marca':
+      return `🟡 Marca IMPI registrada`
+    case 'crecimiento_headcount':
+      return `🟡 Crecimiento headcount ${signalData.porcentaje}%`
+    default:
+      return '📊 Señal detectada'
+  }
+}
+
+function getBadge(score: number) {
+  if (score >= 70) return 'HOT'
+  if (score >= 40) return 'WARM'
+  return 'COLD'
+}
+
+export default async function Home() {
+  const companies = await getCompanies()
+  const hotLeads = companies.filter((c: {company_score: number}) => c.company_score >= 70).length
+  const warmLeads = companies.filter((c: {company_score: number}) => c.company_score >= 40 && c.company_score < 70).length
+
   return (
     <div style={{ 
       display: 'flex', 
@@ -104,7 +153,9 @@ export default function Home() {
         }}>
           <div>
             <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#1A1A2E' }}>Buscar Prospectos</h1>
-            <p style={{ fontSize: '13px', color: '#6B7280', marginTop: '2px' }}>1,022,847 empresas mexicanas verificadas</p>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginTop: '2px' }}>
+              {companies.length} empresas cargadas desde Supabase
+            </p>
           </div>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <div style={{
@@ -160,7 +211,6 @@ export default function Home() {
             }}>Buscar</button>
           </div>
 
-          {/* Filters */}
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {['Nuevo León', 'Manufactura', '50-200 empleados', 'Señal HOT', 'SAT Activo'].map((filter) => (
               <div key={filter} style={{
@@ -192,9 +242,9 @@ export default function Home() {
           {/* Stats Row */}
           <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
             {[
-              { label: 'HOT leads hoy', value: '47', color: '#DC2626', bg: '#FEF2F2' },
-              { label: 'WARM leads', value: '183', color: '#D97706', bg: '#FFFBEB' },
-              { label: 'Total encontrados', value: '2,847', color: '#00338D', bg: '#EEF2FF' },
+              { label: 'HOT leads hoy', value: String(hotLeads), color: '#DC2626', bg: '#FEF2F2' },
+              { label: 'WARM leads', value: String(warmLeads), color: '#D97706', bg: '#FFFBEB' },
+              { label: 'Total encontrados', value: String(companies.length), color: '#00338D', bg: '#EEF2FF' },
             ].map((stat) => (
               <div key={stat.label} style={{
                 backgroundColor: stat.bg,
@@ -209,135 +259,118 @@ export default function Home() {
             ))}
           </div>
 
-          {/* Lead Cards */}
-          {[
-            { 
-              name: 'Grupo Industrial Vitro', 
-              sector: 'Manufactura · Vidrio',
-              location: 'Monterrey, NL',
-              employees: '850 empleados',
-              score: 92,
-              badge: 'HOT',
-              signal: '🔴 Director nuevo hace 18 días',
-              health: '✅ SAT activo'
-            },
-            { 
-              name: 'Femsa Logística SA de CV', 
-              sector: 'Logística · Distribución',
-              location: 'San Pedro, NL',
-              employees: '1,200 empleados',
-              score: 78,
-              badge: 'HOT',
-              signal: '🔴 Contrato Compranet $2.3M',
-              health: '✅ SAT activo'
-            },
-            { 
-              name: 'Tecnológica del Norte', 
-              sector: 'Tecnología · Software',
-              location: 'Monterrey, NL',
-              employees: '45 empleados',
-              score: 65,
-              badge: 'WARM',
-              signal: '🟡 Vacante Gerente de Ventas',
-              health: '✅ SAT activo'
-            },
-            { 
-              name: 'Constructora Regia SA de CV', 
-              sector: 'Construcción',
-              location: 'Guadalupe, NL',
-              employees: '120 empleados',
-              score: 58,
-              badge: 'WARM',
-              signal: '🟡 Marca IMPI registrada',
-              health: '⚠️ Verificar SAT'
-            },
-          ].map((lead) => (
-            <div key={lead.name} style={{
-              backgroundColor: '#FFFFFF',
-              border: '1px solid #E5E7EB',
-              borderRadius: '12px',
-              padding: '20px 24px',
-              marginBottom: '12px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '20px',
-              cursor: 'pointer',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-            }}>
-              {/* Score Badge */}
-              <div style={{
-                width: '56px',
-                height: '56px',
+          {/* Lead Cards desde Supabase */}
+          {companies.map((company: {
+            id: string
+            razon_social: string
+            municipio: string
+            estado: string
+            sector: string
+            total_trabajadores: number
+            en_lista_69b: boolean
+            company_score: number
+            signals?: Array<{is_active: boolean; signal_type: string; signal_data: Record<string, unknown>}>
+          }) => {
+            const badge = getBadge(company.company_score)
+            const activeSignal = company.signals?.find((s) => s.is_active)
+            const signalLabel = activeSignal 
+              ? getSignalLabel(activeSignal.signal_type, activeSignal.signal_data)
+              : '📊 Sin señal activa'
+
+            return (
+              <div key={company.id} style={{
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #E5E7EB',
                 borderRadius: '12px',
-                backgroundColor: lead.badge === 'HOT' ? '#FEF2F2' : '#FFFBEB',
-                border: `2px solid ${lead.badge === 'HOT' ? '#DC2626' : '#D97706'}`,
+                padding: '20px 24px',
+                marginBottom: '12px',
                 display: 'flex',
-                flexDirection: 'column',
                 alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
+                gap: '20px',
+                cursor: 'pointer',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
               }}>
-                <span style={{ 
-                  fontSize: '18px', 
-                  fontWeight: 800,
-                  color: lead.badge === 'HOT' ? '#DC2626' : '#D97706'
-                }}>{lead.score}</span>
-                <span style={{ 
-                  fontSize: '8px', 
-                  fontWeight: 700,
-                  color: lead.badge === 'HOT' ? '#DC2626' : '#D97706',
-                  letterSpacing: '1px'
-                }}>{lead.badge}</span>
-              </div>
-
-              {/* Company Info */}
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                  <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1A1A2E' }}>{lead.name}</h3>
-                  <span style={{ fontSize: '11px', color: '#6B7280' }}>{lead.location}</span>
-                </div>
-                <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', color: '#6B7280' }}>{lead.sector}</span>
-                  <span style={{ fontSize: '12px', color: '#6B7280' }}>{lead.employees}</span>
-                  <span style={{ fontSize: '12px', color: '#16A34A', fontWeight: 600 }}>{lead.health}</span>
-                </div>
+                {/* Score Badge */}
                 <div style={{
-                  display: 'inline-flex',
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '12px',
+                  backgroundColor: badge === 'HOT' ? '#FEF2F2' : badge === 'WARM' ? '#FFFBEB' : '#F4F6F8',
+                  border: `2px solid ${badge === 'HOT' ? '#DC2626' : badge === 'WARM' ? '#D97706' : '#9CA3AF'}`,
+                  display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
-                  backgroundColor: '#F4F6F8',
-                  borderRadius: '6px',
-                  padding: '4px 10px',
-                  fontSize: '12px',
-                  color: '#1A1A2E',
-                  border: '1px solid #E5E7EB'
-                }}>{lead.signal}</div>
-              </div>
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <span style={{ 
+                    fontSize: '18px', 
+                    fontWeight: 800,
+                    color: badge === 'HOT' ? '#DC2626' : badge === 'WARM' ? '#D97706' : '#6B7280'
+                  }}>{company.company_score}</span>
+                  <span style={{ 
+                    fontSize: '8px', 
+                    fontWeight: 700,
+                    color: badge === 'HOT' ? '#DC2626' : badge === 'WARM' ? '#D97706' : '#6B7280',
+                    letterSpacing: '1px'
+                  }}>{badge}</span>
+                </div>
 
-              {/* Actions */}
-              <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                <button style={{
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid #E5E7EB',
-                  borderRadius: '8px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  color: '#6B7280',
-                  cursor: 'pointer',
-                  fontWeight: 500
-                }}>+ Pipeline</button>
-                <button style={{
-                  backgroundColor: '#00338D',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: '#FFFFFF',
-                  cursor: 'pointer'
-                }}>⚡ Ejecutar</button>
+                {/* Company Info */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                    <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1A1A2E' }}>{company.razon_social}</h3>
+                    <span style={{ fontSize: '11px', color: '#6B7280' }}>{company.municipio}, {company.estado}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', color: '#6B7280' }}>{company.sector}</span>
+                    <span style={{ fontSize: '12px', color: '#6B7280' }}>{company.total_trabajadores} empleados</span>
+                    <span style={{ 
+                      fontSize: '12px', 
+                      color: company.en_lista_69b ? '#DC2626' : '#16A34A',
+                      fontWeight: 600
+                    }}>
+                      {company.en_lista_69b ? '⚠️ Lista 69-B' : '✅ SAT activo'}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    backgroundColor: '#F4F6F8',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    color: '#1A1A2E',
+                    border: '1px solid #E5E7EB'
+                  }}>{signalLabel}</div>
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  <button style={{
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: '8px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    color: '#6B7280',
+                    cursor: 'pointer',
+                    fontWeight: 500
+                  }}>+ Pipeline</button>
+                  <button style={{
+                    backgroundColor: '#00338D',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#FFFFFF',
+                    cursor: 'pointer'
+                  }}>⚡ Ejecutar</button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </main>
     </div>
